@@ -1,0 +1,12 @@
+# Bỏ qua thư viện nặng
+node_modules/
+*/node_modules/
+
+# Bỏ qua file môi trường (CHỨA MẬT KHẨU -> TUYỆT ĐỐI KHÔNG PUSH)
+.env
+*/.env
+
+# Bỏ qua file rác hệ thống
+.DS_Store
+dist/
+build/
