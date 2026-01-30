@@ -126,92 +126,87 @@ const syncWorkSpaceMemberCreation = inngest.createFunction(
 
 //Inngest Function to send Email on Task Creation
 const sendTaskAssignmentEmail = inngest.createFunction(
-  {id: "send-task-assignment-email"},
-  {event: "app/task.created"},
-  async({event, step}) => {
-    const {taskId, origin} = event.data;
+  { id: "send-task-assignment-email" },
+  { event: "app/task.assigned" },
+  async ({ event, step }) => {
+    const { taskId, origin } = event.data;
 
-    const task = await prisma.task.findUnique({
-      where: {id: taskId},
-      include: {assignee: true, project: true}
-    })
+    // STEP 1: Lấy thông tin Task ban đầu
+    const task = await step.run("fetch-initial-task", async () => {
+      return await prisma.task.findUnique({
+        where: { id: taskId },
+        include: { assignee: true, project: true }
+      });
+    });
+
     if (!task || !task.assignee) return;
-    await sendEmail({
-      to: task.assignee.email,
-      subject: `New Task Assignment in: ${task.project.name}`,
-      body: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
-                    
-                    <h2>Hi ${task.assignee.name || "Member"},</h2>
-                    <p style="font-size: 16px;">You have been assigned a new task:</p>
-                    <p style="font-size: 18px; font-weight: bold; color: #007bff; margin: 8px 0;">${task.title}</p>
 
-                    <div style="border: 1px solid #ddd; padding: 12px 16px; border-radius: 6px; margin-bottom: 30px; background-color: #f9f9f9;">
-                        <p style="margin: 6px 0;">
-                            <strong>Description:</strong> ${task.description || "No description provided"}
-                        </p>
-                        <p style="margin: 6px 0;">
-                            <strong>Due Date:</strong> ${task.due_date ? new Date(task.due_date).toLocaleDateString() : "No due date"}
-                        </p>
-                    </div>
+    // STEP 2: Gửi Email giao việc (Assignment Email)
+    await step.run("send-assignment-email", async () => {
+      await sendEmail({
+        to: task.assignee.email,
+        subject: `New Task Assignment in: ${task.project.name}`,
+        body: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
+            <h2>Hi ${task.assignee.name || "Member"},</h2>
+            <p style="font-size: 16px;">You have been assigned a new task:</p>
+            <p style="font-size: 18px; font-weight: bold; color: #007bff; margin: 8px 0;">${task.title}</p>
+            
+            <div style="border: 1px solid #ddd; padding: 12px 16px; border-radius: 6px; margin-bottom: 30px; background-color: #f9f9f9;">
+               <p style="margin: 6px 0;"><strong>Description:</strong> ${task.description || "No description provided"}</p>
+               <p style="margin: 6px 0;"><strong>Due Date:</strong> ${task.due_date ? new Date(task.due_date).toLocaleDateString() : "No due date"}</p>
+            </div>
 
-                    <a href="${origin}" style="background-color: #007bff; padding: 12px 24px; border-radius: 5px; color: #fff; font-weight: 600; font-size: 16px; text-decoration: none; display: inline-block;">
-                        View Task
-                    </a>
+            <a href="${origin}" style="background-color: #007bff; padding: 12px 24px; border-radius: 5px; color: #fff; font-weight: 600; text-decoration: none; display: inline-block;">View Task</a>
+          </div>
+        `
+      });
+    });
 
-                    <p style="margin-top: 20px; font-size: 14px; color: #6c757d;">
-                        Please make sure to review and complete it before the due date.
-                    </p>
+    // STEP 3: Xử lý Reminder (Nhắc nhở)
+    // Chỉ chạy nếu có Due Date và Due Date ở tương lai
+    const dueDate = new Date(task.due_date);
+    const now = new Date();
+
+    if (task.due_date && dueDate > now) {
+      
+      // Ngủ đến hạn chót (Sleep until due date)
+      await step.sleepUntil('wait-for-due-date', dueDate);
+
+      // STEP 4: Kiểm tra lại trạng thái Task sau khi ngủ dậy
+      const latestTask = await step.run('check-task-status', async () => {
+        return await prisma.task.findUnique({
+          where: { id: taskId },
+          select: { status: true } // Chỉ cần lấy status
+        });
+      });
+
+      // Nếu task vẫn chưa xong (DONE) thì mới gửi mail nhắc
+      if (latestTask && latestTask.status !== "DONE") {
+        
+        // STEP 5: Gửi Email nhắc nhở (Reminder) - Nằm ngang hàng, KHÔNG lồng vào step 4
+        await step.run('send-reminder-email', async () => {
+          await sendEmail({
+            to: task.assignee.email,
+            subject: `⚠️ Reminder: Task Due Today - ${task.project.name}`,
+            body: `
+              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
+                <h2 style="color: #dc3545;">Task Reminder</h2>
+                <p>Hi ${task.assignee.name || "Member"},</p>
+                <p>This is a reminder that the following task is due <strong>today</strong> and is not yet completed:</p>
+                <p style="font-size: 18px; font-weight: bold; color: #333; margin: 8px 0;">${task.title}</p>
+                
+                <div style="margin: 20px 0;">
+                  <a href="${origin}" style="background-color: #dc3545; padding: 12px 24px; border-radius: 5px; color: #fff; font-weight: 600; text-decoration: none;">Complete Task Now</a>
                 </div>
-
-             `
-    })
-    if(new Date(task.due_date).toLocaleDateString() !== new Date().toLocaleDateString()){
-      await step.sleepUntil('wait-for-the-due-date', new Date(task.due_date))
-
-      await step.run('check-if-task-is-completed', async () => {
-        const task = await prisma.task.findUnique({
-          where: {id: taskId},
-          include: {assignee: true, project: true}
-
-          
-        })
-        if(!task) return
-
-        if(task.status !== "DONE"){
-          await step.run('send-reminder-email', async () => {
-            await sendEmail({
-              to: task.assignee.email,
-              subject: `Reminder for ${task.project.name}`,
-              body: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
-                    
-                    <h2>Hi ${task.assignee.name || "Member"},</h2>
-                    <p style="font-size: 16px;">You have been assigned a new task:</p>
-                    <p style="font-size: 18px; font-weight: bold; color: #007bff; margin: 8px 0;">${task.title}</p>
-
-                    <div style="border: 1px solid #ddd; padding: 12px 16px; border-radius: 6px; margin-bottom: 30px; background-color: #f9f9f9;">
-                        <p style="margin: 6px 0;">
-                            <strong>Description:</strong> ${task.description || "No description provided"}
-                        </p>
-                        <p style="margin: 6px 0;">
-                            <strong>Due Date:</strong> ${task.due_date ? new Date(task.due_date).toLocaleDateString() : "No due date"}
-                        </p>
-                    </div>
-
-                    <a href="${origin}" style="background-color: #007bff; padding: 12px 24px; border-radius: 5px; color: #fff; font-weight: 600; font-size: 16px; text-decoration: none; display: inline-block;">
-                        View Task
-                    </a>
-
-                    <p style="margin-top: 20px; font-size: 14px; color: #6c757d;">
-                        Please make sure to review and complete it before the due date.
-                    </p>
-                </div>`
-            })
-          })
-        }
-      })
+              </div>
+            `
+          });
+        });
+      }
     }
   }
-)
+);
 export const functions = [
   syncUserCreation,
   syncUserDeletion,

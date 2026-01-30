@@ -13,7 +13,7 @@ export const fetchWorkspaces = createAsyncThunk('workspace/fetchWorkspaces', asy
     }
 })
 const initialState = {
-    workspaces: [],
+    workspaces: [], 
     currentWorkspace: null,
     loading: false,
 };

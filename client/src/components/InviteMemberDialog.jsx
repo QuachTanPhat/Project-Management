@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { Mail, UserPlus } from "lucide-react";
 import { useSelector } from "react-redux";
-
+import { useOrganization } from "@clerk/clerk-react";
+import toast from "react-hot-toast";
 const InviteMemberDialog = ({ isDialogOpen, setIsDialogOpen }) => {
-
+    const { organization } = useOrganization();
     const currentWorkspace = useSelector((state) => state.workspace?.currentWorkspace || null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [formData, setFormData] = useState({
@@ -11,13 +12,25 @@ const InviteMemberDialog = ({ isDialogOpen, setIsDialogOpen }) => {
         role: "org:member",
     });
 
+
     const handleSubmit = async (e) => {
         e.preventDefault();
+        setIsSubmitting(true);
 
+        try {
+            await organization.inviteMember({ emailAddress: formData.email, role: formData.role });
+            toast.success("Invitation sent successfully!");
+            setIsDialogOpen(false);
+        } catch (error) {
+            console.error(error);
+            toast.error
+        }
+        finally {
+            setIsSubmitting(false);
+        }
     };
 
     if (!isDialogOpen) return null;
-
     return (
         <div className="fixed inset-0 bg-black/20 dark:bg-black/50 backdrop-blur flex items-center justify-center z-50">
             <div className="bg-white dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-800 rounded-xl p-6 w-full max-w-md text-zinc-900 dark:text-zinc-200">
@@ -32,7 +45,6 @@ const InviteMemberDialog = ({ isDialogOpen, setIsDialogOpen }) => {
                         </p>
                     )}
                 </div>
-
                 {/* Form */}
                 <form onSubmit={handleSubmit} className="space-y-4">
                     {/* Email */}
@@ -69,5 +81,7 @@ const InviteMemberDialog = ({ isDialogOpen, setIsDialogOpen }) => {
         </div>
     );
 };
+
+
 
 export default InviteMemberDialog;

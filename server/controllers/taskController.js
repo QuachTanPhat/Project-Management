@@ -5,7 +5,7 @@ export const createTask = async (req, res) => {
     try {
         const {userId} = await req.auth();
         const {projectId, title, description, type, status, priority, assigneeId, due_date} = req.body;
-        const {origin} = req.get('origin');
+        const origin = req.get('origin') ;
 
         //Check if user is a member of the project
         const project = await prisma.project.findUnique({
