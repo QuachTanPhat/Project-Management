@@ -5,6 +5,12 @@ export const createTask = async (req, res) => {
     try {
         const {userId} = await req.auth();
         const {projectId, title, description, type, status, priority, assigneeId, due_date} = req.body;
+
+        if (!title || !description || !type || !status || !priority || !assigneeId || !due_date) {
+            return res.status(400).json({ 
+                message: "Please fill in all fields (Title, Description, Type, Status, Priority, Assignee, Due Date)" 
+            });
+        }
         const origin = req.get('origin') ;
 
         //Check if user is a member of the project
